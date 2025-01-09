@@ -16,7 +16,11 @@ export class SmartDex extends Contract {
 
   fee = GlobalStateKey<uint64>({ key: 'f' });
 
-  bid_list = GlobalStateKey<StaticArray<Address, 2>>({ key: 'l' });
+  highestBidder = GlobalStateKey<Address>({ key: 'h' });
+
+  bidList = GlobalStateKey<StaticArray<Address, 2>>({ key: 'bdL' });
+
+  bidAmount = GlobalStateKey<uint64>({ key: 'bdA' });
 
   createApplication(): void {
     this.default_governor.value = this.txn.sender;
@@ -73,8 +77,12 @@ export class SmartDex extends Contract {
   }
 
   private tokensToSwap(inAmount: uint64, inSupply: uint64, outSupply: uint64): uint64 {
-    const factor = SCALE - this.fee.value;
+    const factor = SCALE;
     return wideRatio([inAmount, factor, outSupply], [inSupply * SCALE + inAmount * factor]);
+  }
+
+  private feeToCollect(amount: uint64): uint64 {
+    return wideRatio([amount, this.fee.value], [SCALE]);
   }
 
   bootstrap(seed: PayTxn, aAsset: AssetID, bAsset: AssetID): AssetID {
@@ -94,6 +102,8 @@ export class SmartDex extends Contract {
 
     return this.poolToken.value;
   }
+
+  mintFromAlgo(): void {}
 
   mint(aXfer: AssetTransferTxn, bXfer: AssetTransferTxn, poolAsset: AssetID, aAsset: AssetID, bAsset: AssetID): void {
     /// well formed mint
@@ -179,8 +189,10 @@ export class SmartDex extends Contract {
 
     const inId = swapXfer.xferAsset;
 
+    const fees = this.feeToCollect(swapXfer.assetAmount);
+
     const toSwap = this.tokensToSwap(
-      swapXfer.assetAmount,
+      swapXfer.assetAmount - fees,
       this.app.address.assetBalance(inId) - swapXfer.assetAmount,
       this.app.address.assetBalance(outId)
     );
@@ -189,6 +201,23 @@ export class SmartDex extends Contract {
 
     this.doAxfer(this.txn.sender, outId, toSwap);
 
+    this.doAxfer(this.bidList.value[0], inId, fees);
+
     this.ratio.value = this.computeRatio();
+  }
+
+  bid(lpAsset: AssetID, rounds: uint64, bid: uint64, start: uint64): void {
+    // check if bid is set correctly;
+    // check if the bid for the given starting round is winning;
+  }
+
+  changeFee(fee: uint64): void {
+    // check caller
+    // set new fee
+    verifyTxn(this.txn, {
+      sender: this.highestBidder.value,
+    });
+
+    this.fee.value = fee;
   }
 }
