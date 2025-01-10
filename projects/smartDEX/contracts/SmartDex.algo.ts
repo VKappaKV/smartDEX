@@ -1,13 +1,24 @@
 import { Contract } from '@algorandfoundation/tealscript';
+import { PuppetAddress } from './puppetAddress.algo';
 
 export class SmartDex extends Contract {
   manager = GlobalStateKey<Address>({ key: 'manager' });
 
   programs = GlobalStateMap<bytes, bytes>({ maxKeys: 3, prefix: 'p' }); // order/dca/oracle
 
-  createApplication(): void {}
+  createApplication(): void {
+    this.manager.value = this.app.creator;
+  }
 
-  deployIntent(): void {}
+  deployIntent(type: uint64, inID: AssetID, outID: AssetID, rule: uint64): void {}
+
+  private deployReserve(): Address {
+    return sendMethodCall<typeof PuppetAddress.prototype.new>({
+      onCompletion: OnCompletion.DeleteApplication,
+      approvalProgram: PuppetAddress.approvalProgram(),
+      clearStateProgram: PuppetAddress.clearProgram(),
+    });
+  }
 
   /**
    * Fa da factory contract?
@@ -19,4 +30,4 @@ export class SmartDex extends Contract {
    */
 }
 
-export class OrderIntent extends Contract {}
+export class IntentOrder extends Contract {}
