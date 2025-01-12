@@ -1,6 +1,7 @@
 import { Contract } from '@algorandfoundation/tealscript';
+import { CaelusAdmin } from '../../../../Vestguard/src/CaelusAdmin.algo';
 
-const TOTAL_SUPPLY = 10_000_000_000;
+const TOTAL_SUPPLY = 10 ** 16;
 const SCALE = 1_000;
 
 export class SmartDex extends Contract {
@@ -27,68 +28,10 @@ export class SmartDex extends Contract {
     this.fee.value = 5;
   }
 
-  private doCreatePoolToken(aAsset: AssetID, bAsset: AssetID): AssetID {
-    // Unit name asserts not needed since it's done automatically by AssetID.unitName
-
-    return sendAssetCreation({
-      configAssetName: 'VLP-' + aAsset.unitName + '-' + bAsset.unitName,
-      configAssetUnitName: 'vlp',
-      configAssetTotal: TOTAL_SUPPLY,
-      configAssetDecimals: 3,
-      configAssetManager: this.app.address,
-      configAssetReserve: this.app.address,
-    });
-  }
-
-  private doAxfer(receiver: Address, asset: AssetID, amount: uint64): void {
-    sendAssetTransfer({
-      assetReceiver: receiver,
-      xferAsset: asset,
-      assetAmount: amount,
-    });
-  }
-
-  private doOptIn(asset: AssetID): void {
-    this.doAxfer(this.app.address, asset, 0);
-  }
-
-  private tokensToMintIntial(aAmount: uint64, bAmount: uint64): uint64 {
-    return sqrt(aAmount * bAmount);
-  }
-
-  private tokensToMint(issued: uint64, aSupply: uint64, bSupply: uint64, aAmount: uint64, bAmount: uint64): uint64 {
-    const aRatio = wideRatio([aAmount, SCALE], [aSupply]);
-    const bRatio = wideRatio([bAmount, SCALE], [bSupply]);
-
-    const ratio = aRatio < bRatio ? aRatio : bRatio;
-
-    return wideRatio([ratio, issued], [SCALE]);
-  }
-
-  private computeRatio(): uint64 {
-    return wideRatio(
-      [this.app.address.assetBalance(this.assetA.value), SCALE],
-      [this.app.address.assetBalance(this.assetB.value)]
-    );
-  }
-
-  private tokensToBurn(issued: uint64, supply: uint64, amount: uint64): uint64 {
-    return wideRatio([supply, amount], [issued]);
-  }
-
-  private tokensToSwap(inAmount: uint64, inSupply: uint64, outSupply: uint64): uint64 {
-    const factor = SCALE;
-    return wideRatio([inAmount, factor, outSupply], [inSupply * SCALE + inAmount * factor]);
-  }
-
-  private feeToCollect(amount: uint64): uint64 {
-    return wideRatio([amount, this.fee.value], [SCALE]);
-  }
-
   bootstrap(seed: PayTxn, aAsset: AssetID, bAsset: AssetID): AssetID {
     verifyAppCallTxn(this.txn, { sender: this.default_governor.value });
 
-    assert(globals.groupSize === 2);
+    // is it needed ? assert(globals.groupSize === 2);
 
     verifyPayTxn(seed, { receiver: this.app.address, amount: { greaterThanEqualTo: 300_000 } });
     assert(aAsset < bAsset);
@@ -103,7 +46,30 @@ export class SmartDex extends Contract {
     return this.poolToken.value;
   }
 
-  mintFromAlgo(): void {}
+  mintFromAlgo(caelus: AppID, algotxn: PayTxn, assetTxn: AssetTransferTxn): void {
+    verifyPayTxn(algotxn, {
+      receiver: this.app.address,
+    });
+    verifyAssetTransferTxn(assetTxn, {
+      assetReceiver: this.app.address,
+      xferAsset: {
+        notIncludedIn: [caelus.globalState('token_id') as AssetID],
+        includedIn: [this.assetA.value, this.assetB.value],
+      },
+    });
+
+    sendMethodCall<typeof CaelusAdmin.prototype.instantMintRequest>({
+      applicationID: caelus,
+      methodArgs: [
+        {
+          receiver: caelus.address,
+          amount: algotxn.amount,
+        },
+      ],
+    });
+
+    // TODO make mint call here?
+  }
 
   mint(aXfer: AssetTransferTxn, bXfer: AssetTransferTxn, poolAsset: AssetID, aAsset: AssetID, bAsset: AssetID): void {
     /// well formed mint
@@ -206,18 +172,80 @@ export class SmartDex extends Contract {
     this.ratio.value = this.computeRatio();
   }
 
+  becomeBidder(payMBR: PayTxn): void {
+    verifyPayTxn(payMBR, {
+      receiver: this.app.address,
+      amount: { greaterThan: 200_000 },
+    });
+    // create escrow to bidder account to use to deposit LP tokens and fees accrued
+  }
+
   bid(lpAsset: AssetID, rounds: uint64, bid: uint64, start: uint64): void {
     // check if bid is set correctly;
     // check if the bid for the given starting round is winning;
   }
 
   changeFee(fee: uint64): void {
-    // check caller
-    // set new fee
     verifyTxn(this.txn, {
       sender: this.highestBidder.value,
     });
 
     this.fee.value = fee;
+  }
+
+  private doCreatePoolToken(aAsset: AssetID, bAsset: AssetID): AssetID {
+    return sendAssetCreation({
+      configAssetName: 'VLP-' + aAsset.unitName + '-' + bAsset.unitName,
+      configAssetUnitName: 'vlp',
+      configAssetTotal: TOTAL_SUPPLY,
+      configAssetDecimals: 3,
+      configAssetManager: this.app.address,
+      configAssetReserve: this.app.address,
+    });
+  }
+
+  private doAxfer(receiver: Address, asset: AssetID, amount: uint64): void {
+    sendAssetTransfer({
+      assetReceiver: receiver,
+      xferAsset: asset,
+      assetAmount: amount,
+    });
+  }
+
+  private doOptIn(asset: AssetID): void {
+    this.doAxfer(this.app.address, asset, 0);
+  }
+
+  private tokensToMintIntial(aAmount: uint64, bAmount: uint64): uint64 {
+    return sqrt(aAmount * bAmount);
+  }
+
+  private tokensToMint(issued: uint64, aSupply: uint64, bSupply: uint64, aAmount: uint64, bAmount: uint64): uint64 {
+    const aRatio = wideRatio([aAmount, SCALE], [aSupply]);
+    const bRatio = wideRatio([bAmount, SCALE], [bSupply]);
+
+    const ratio = aRatio < bRatio ? aRatio : bRatio;
+
+    return wideRatio([ratio, issued], [SCALE]);
+  }
+
+  private computeRatio(): uint64 {
+    return wideRatio(
+      [this.app.address.assetBalance(this.assetA.value), SCALE],
+      [this.app.address.assetBalance(this.assetB.value)]
+    );
+  }
+
+  private tokensToBurn(issued: uint64, supply: uint64, amount: uint64): uint64 {
+    return wideRatio([supply, amount], [issued]);
+  }
+
+  private tokensToSwap(inAmount: uint64, inSupply: uint64, outSupply: uint64): uint64 {
+    const factor = SCALE;
+    return wideRatio([inAmount, factor, outSupply], [inSupply * SCALE + inAmount * factor]);
+  }
+
+  private feeToCollect(amount: uint64): uint64 {
+    return wideRatio([amount, this.fee.value], [SCALE]);
   }
 }
