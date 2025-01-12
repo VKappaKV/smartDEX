@@ -1,35 +1,42 @@
 import { Contract } from '@algorandfoundation/tealscript';
 import { CaelusAdmin } from '../../../../Vestguard/src/CaelusAdmin.algo';
+import { PuppetAddress } from './puppetAddress.algo';
 
 const TOTAL_SUPPLY = 10 ** 16;
 const SCALE = 1_000;
+const DELAY = 10;
 
 export class SmartDex extends Contract {
-  default_governor = GlobalStateKey<Address>({ key: 'g' });
+  default_manager = GlobalStateKey<Address>({ key: 'default_manager' });
 
-  assetA = GlobalStateKey<AssetID>({ key: 'a' });
+  assetA = GlobalStateKey<AssetID>({ key: 'asset_a' });
 
-  assetB = GlobalStateKey<AssetID>({ key: 'b' });
+  assetB = GlobalStateKey<AssetID>({ key: 'asset_b' });
 
-  poolToken = GlobalStateKey<AssetID>({ key: 'p' });
+  poolToken = GlobalStateKey<AssetID>({ key: 'pool_token' });
 
-  ratio = GlobalStateKey<uint64>({ key: 'r' });
+  ratio = GlobalStateKey<uint64>({ key: 'ratio' });
 
-  fee = GlobalStateKey<uint64>({ key: 'f' });
+  fee = GlobalStateKey<uint64>({ key: 'fee' });
 
-  highestBidder = GlobalStateKey<Address>({ key: 'h' });
+  maxFee = GlobalStateKey<uint64>({ key: 'max_fee' });
 
-  bidList = GlobalStateKey<StaticArray<Address, 2>>({ key: 'bdL' });
+  poolManager = GlobalStateKey<Address>({ key: 'pool_manager' });
 
-  bidAmount = GlobalStateKey<uint64>({ key: 'bdA' });
+  topBiddersList = GlobalStateKey<StaticArray<Address, 2>>({ key: 'top_bidders_list' });
+
+  biddersRegistry = BoxMap<Address, Address>({ prefix: 'bidders_registry' });
+
+  highestBidAmount = GlobalStateKey<uint64>({ key: 'bid_amount' });
 
   createApplication(): void {
-    this.default_governor.value = this.txn.sender;
+    this.default_manager.value = this.txn.sender;
     this.fee.value = 5;
   }
 
   bootstrap(seed: PayTxn, aAsset: AssetID, bAsset: AssetID): AssetID {
-    verifyAppCallTxn(this.txn, { sender: this.default_governor.value });
+    // TODO: set max fee amount
+    verifyAppCallTxn(this.txn, { sender: this.default_manager.value });
 
     // is it needed ? assert(globals.groupSize === 2);
 
@@ -167,17 +174,46 @@ export class SmartDex extends Contract {
 
     this.doAxfer(this.txn.sender, outId, toSwap);
 
-    this.doAxfer(this.bidList.value[0], inId, fees);
+    this.doAxfer(this.poolManager.value, inId, fees);
 
     this.ratio.value = this.computeRatio();
   }
 
-  becomeBidder(payMBR: PayTxn): void {
+  createBidderEscrow(payMBR: PayTxn): Address {
     verifyPayTxn(payMBR, {
       receiver: this.app.address,
-      amount: { greaterThan: 200_000 },
+      amount: { greaterThan: 400_000 },
     });
     // create escrow to bidder account to use to deposit LP tokens and fees accrued
+
+    const bidderPuppetAccount = sendMethodCall<typeof PuppetAddress.prototype.new>({
+      onCompletion: OnCompletion.DeleteApplication,
+      approvalProgram: PuppetAddress.approvalProgram(),
+      clearStateProgram: PuppetAddress.clearProgram(),
+    });
+
+    sendAssetTransfer({
+      sender: bidderPuppetAccount,
+      assetReceiver: bidderPuppetAccount,
+      assetAmount: 0,
+      xferAsset: this.poolToken.value,
+    });
+    sendAssetTransfer({
+      sender: bidderPuppetAccount,
+      assetReceiver: bidderPuppetAccount,
+      assetAmount: 0,
+      xferAsset: this.assetA.value,
+    });
+    sendAssetTransfer({
+      sender: bidderPuppetAccount,
+      assetReceiver: bidderPuppetAccount,
+      assetAmount: 0,
+      xferAsset: this.assetB.value,
+    });
+
+    this.biddersRegistry(this.txn.sender).value = bidderPuppetAccount;
+
+    return bidderPuppetAccount;
   }
 
   bid(lpAsset: AssetID, rounds: uint64, bid: uint64, start: uint64): void {
@@ -187,7 +223,7 @@ export class SmartDex extends Contract {
 
   changeFee(fee: uint64): void {
     verifyTxn(this.txn, {
-      sender: this.highestBidder.value,
+      sender: this.poolManager.value,
     });
 
     this.fee.value = fee;

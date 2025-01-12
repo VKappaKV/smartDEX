@@ -4,7 +4,7 @@ import { PuppetAddress } from './puppetAddress.algo';
 export class SmartDex extends Contract {
   manager = GlobalStateKey<Address>({ key: 'manager' });
 
-  programs = GlobalStateMap<bytes, bytes>({ maxKeys: 3, prefix: 'p' }); // order/dca/oracle
+  programs = GlobalStateMap<bytes, bytes>({ maxKeys: 3, prefix: 'p' }); // order/dca////oracle (specific use case to be defined)
 
   createApplication(): void {
     this.manager.value = this.app.creator;
@@ -29,5 +29,3 @@ export class SmartDex extends Contract {
    * Deploy Order Contract-> Input, Expected Output (Min amount tolerated), Fee.
    */
 }
-
-export class IntentOrder extends Contract {}
