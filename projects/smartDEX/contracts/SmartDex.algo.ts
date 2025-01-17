@@ -1,16 +1,36 @@
 import { Contract } from '@algorandfoundation/tealscript';
 import { PuppetAddress } from './puppetAddress.algo';
 
+type Intent = {
+  reserve: Address;
+  inID: AssetID;
+  outID: AssetID;
+  rule: uint64;
+};
+
 export class SmartDex extends Contract {
   manager = GlobalStateKey<Address>({ key: 'manager' });
 
-  programs = GlobalStateMap<bytes, bytes>({ maxKeys: 3, prefix: 'p' }); // order/dca////oracle (specific use case to be defined)
+  intentRegistry = BoxMap<Address, Intent>({ prefix: 'intent_registry' });
+
+  // order/dca////oracle (specific use case to be defined)
 
   createApplication(): void {
     this.manager.value = this.app.creator;
   }
 
-  deployIntent(type: uint64, inID: AssetID, outID: AssetID, rule: uint64): void {}
+  bootstrapIntent(inID: AssetID, outID: AssetID, rule: uint64, payMBR: PayTxn): void {
+    verifyPayTxn(payMBR, { receiver: this.app.address, amount: { greaterThanEqualTo: 300_000 } });
+    this.intentRegistry(this.txn.sender).value = { reserve: this.deployReserve(), inID, outID, rule };
+  }
+
+  rolloutIntent(): void {}
+
+  closeIntent(): void {}
+
+  fillIntentOrder(): void {}
+
+  bidForIntent(): void {}
 
   private deployReserve(): Address {
     return sendMethodCall<typeof PuppetAddress.prototype.new>({

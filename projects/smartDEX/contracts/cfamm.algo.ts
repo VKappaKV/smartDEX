@@ -34,11 +34,11 @@ export class SmartDex extends Contract {
     this.fee.value = 5;
   }
 
-  bootstrap(seed: PayTxn, aAsset: AssetID, bAsset: AssetID): AssetID {
-    // TODO: set max fee amount
+  bootstrap(seed: PayTxn, aAsset: AssetID, bAsset: AssetID, maxFee: uint64): AssetID {
+    this.maxFee.value = maxFee;
     verifyAppCallTxn(this.txn, { sender: this.default_manager.value });
 
-    // is it needed ? assert(globals.groupSize === 2);
+    // assert(globals.groupSize === 2);  is it needed ?
 
     verifyPayTxn(seed, { receiver: this.app.address, amount: { greaterThanEqualTo: 300_000 } });
     assert(aAsset < bAsset);
@@ -47,8 +47,8 @@ export class SmartDex extends Contract {
     this.assetB.value = bAsset;
     this.poolToken.value = this.doCreatePoolToken(aAsset, bAsset);
 
-    this.doOptIn(aAsset);
-    this.doOptIn(bAsset);
+    this.doOptIn(aAsset, this.app.address);
+    this.doOptIn(bAsset, this.app.address);
 
     return this.poolToken.value;
   }
@@ -75,7 +75,7 @@ export class SmartDex extends Contract {
       ],
     });
 
-    // TODO make mint call here?
+    // TODO make mint call here? or let the group call it after the mint?
   }
 
   mint(aXfer: AssetTransferTxn, bXfer: AssetTransferTxn, poolAsset: AssetID, aAsset: AssetID, bAsset: AssetID): void {
@@ -116,7 +116,7 @@ export class SmartDex extends Contract {
 
       assert(toMint > 0);
 
-      this.doAxfer(this.txn.sender, poolAsset, toMint);
+      this.doAxfer(this.app.address, this.txn.sender, poolAsset, toMint);
     }
   }
 
@@ -140,8 +140,8 @@ export class SmartDex extends Contract {
 
     const bAmt = this.tokensToBurn(issued, this.app.address.assetBalance(bAsset), poolXfer.assetAmount);
 
-    this.doAxfer(this.txn.sender, aAsset, aAmt);
-    this.doAxfer(this.txn.sender, bAsset, bAmt);
+    this.doAxfer(this.app.address, this.txn.sender, aAsset, aAmt);
+    this.doAxfer(this.app.address, this.txn.sender, bAsset, bAmt);
 
     this.ratio.value = this.computeRatio();
   }
@@ -172,9 +172,9 @@ export class SmartDex extends Contract {
 
     assert(toSwap > 0);
 
-    this.doAxfer(this.txn.sender, outId, toSwap);
+    this.doAxfer(this.app.address, this.txn.sender, outId, toSwap);
 
-    this.doAxfer(this.poolManager.value, inId, fees);
+    this.doAxfer(this.app.address, this.poolManager.value, inId, fees);
 
     this.ratio.value = this.computeRatio();
   }
@@ -184,7 +184,6 @@ export class SmartDex extends Contract {
       receiver: this.app.address,
       amount: { greaterThan: 400_000 },
     });
-    // create escrow to bidder account to use to deposit LP tokens and fees accrued
 
     const bidderPuppetAccount = sendMethodCall<typeof PuppetAddress.prototype.new>({
       onCompletion: OnCompletion.DeleteApplication,
@@ -192,24 +191,14 @@ export class SmartDex extends Contract {
       clearStateProgram: PuppetAddress.clearProgram(),
     });
 
-    sendAssetTransfer({
-      sender: bidderPuppetAccount,
-      assetReceiver: bidderPuppetAccount,
-      assetAmount: 0,
-      xferAsset: this.poolToken.value,
+    sendPayment({
+      receiver: bidderPuppetAccount,
+      amount: 300_000,
     });
-    sendAssetTransfer({
-      sender: bidderPuppetAccount,
-      assetReceiver: bidderPuppetAccount,
-      assetAmount: 0,
-      xferAsset: this.assetA.value,
-    });
-    sendAssetTransfer({
-      sender: bidderPuppetAccount,
-      assetReceiver: bidderPuppetAccount,
-      assetAmount: 0,
-      xferAsset: this.assetB.value,
-    });
+
+    this.doOptIn(this.poolToken.value, bidderPuppetAccount);
+    this.doOptIn(this.assetA.value, bidderPuppetAccount);
+    this.doOptIn(this.assetB.value, bidderPuppetAccount);
 
     this.biddersRegistry(this.txn.sender).value = bidderPuppetAccount;
 
@@ -225,7 +214,7 @@ export class SmartDex extends Contract {
     verifyTxn(this.txn, {
       sender: this.poolManager.value,
     });
-
+    assert(fee <= this.maxFee.value);
     this.fee.value = fee;
   }
 
@@ -240,16 +229,17 @@ export class SmartDex extends Contract {
     });
   }
 
-  private doAxfer(receiver: Address, asset: AssetID, amount: uint64): void {
+  private doAxfer(sender: Address, receiver: Address, asset: AssetID, amount: uint64): void {
     sendAssetTransfer({
+      assetCloseTo: sender,
       assetReceiver: receiver,
       xferAsset: asset,
       assetAmount: amount,
     });
   }
 
-  private doOptIn(asset: AssetID): void {
-    this.doAxfer(this.app.address, asset, 0);
+  private doOptIn(asset: AssetID, address: Address): void {
+    this.doAxfer(address, address, asset, 0);
   }
 
   private tokensToMintIntial(aAmount: uint64, bAmount: uint64): uint64 {
