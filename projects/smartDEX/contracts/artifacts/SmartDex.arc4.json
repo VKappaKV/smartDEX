@@ -1,0 +1,104 @@
+{
+  "name": "SmartDex",
+  "desc": "",
+  "methods": [
+    {
+      "name": "createApplication",
+      "args": [],
+      "returns": {
+        "type": "void"
+      }
+    },
+    {
+      "name": "updateApplication",
+      "args": [],
+      "returns": {
+        "type": "void"
+      }
+    },
+    {
+      "name": "bootstrapIntent",
+      "args": [
+        {
+          "name": "inID",
+          "type": "uint64"
+        },
+        {
+          "name": "outID",
+          "type": "uint64"
+        },
+        {
+          "name": "output",
+          "type": "uint64"
+        },
+        {
+          "name": "decayRate",
+          "type": "uint64"
+        },
+        {
+          "name": "payMBR",
+          "type": "pay"
+        }
+      ],
+      "returns": {
+        "type": "uint64"
+      }
+    },
+    {
+      "name": "rolloutIntent",
+      "args": [
+        {
+          "name": "input",
+          "type": "txn"
+        },
+        {
+          "name": "id",
+          "type": "uint64"
+        }
+      ],
+      "returns": {
+        "type": "void"
+      }
+    },
+    {
+      "name": "closeIntent",
+      "args": [
+        {
+          "name": "id",
+          "type": "uint64"
+        }
+      ],
+      "returns": {
+        "type": "void"
+      }
+    },
+    {
+      "name": "fillIntentOrder",
+      "args": [
+        {
+          "name": "id",
+          "type": "uint64"
+        },
+        {
+          "name": "fillTxn",
+          "type": "txn"
+        }
+      ],
+      "returns": {
+        "type": "void"
+      }
+    },
+    {
+      "name": "intentOutputFromDutchAuction",
+      "args": [
+        {
+          "name": "id",
+          "type": "uint64"
+        }
+      ],
+      "returns": {
+        "type": "uint64"
+      }
+    }
+  ]
+}
